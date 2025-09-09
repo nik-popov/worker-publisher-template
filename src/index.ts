@@ -1,5 +1,3 @@
-import Cloudflare from "cloudflare";
-
 // Declare puppeteer global to fix TypeScript error
 declare const puppeteer: {
   launch: (browser: any) => Promise<{
@@ -14,68 +12,10 @@ declare const puppeteer: {
   }>;
 };
 
-async function deploySnippetToNamespace(
-  opts: {
-    namespaceName: string;
-    scriptName: string;
-    code: string;
-    bindings?: Array<
-      | { type: "plain_text"; name: string; text: string }
-      | { type: "kv_namespace"; name: string; namespace_id: string }
-      | { type: "r2_bucket"; name: string; bucket_name: string }
-      | { type: "browser"; name: string }
-    >;
-  },
-  env: {
-    CLOUDFLARE_API_TOKEN: string;
-    CLOUDFLARE_ACCOUNT_ID: string;
-  },
-) {
-  const { namespaceName, scriptName, code, bindings = [] } = opts;
-
-  const cf = new Cloudflare({
-    apiToken: env.CLOUDFLARE_API_TOKEN,
-  });
-
-  try {
-    await cf.workersForPlatforms.dispatch.namespaces.get(namespaceName, {
-      account_id: env.CLOUDFLARE_ACCOUNT_ID,
-    });
-  } catch {
-    await cf.workersForPlatforms.dispatch.namespaces.create({
-      account_id: env.CLOUDFLARE_ACCOUNT_ID,
-      name: namespaceName,
-    });
-  }
-
-  const moduleFileName = `${scriptName}.mjs`;
-
-  bindings.push({ type: "browser", name: "BROWSER" });
-
-  await cf.workersForPlatforms.dispatch.namespaces.scripts.update(
-    namespaceName,
-    scriptName,
-    {
-      account_id: env.CLOUDFLARE_ACCOUNT_ID,
-      metadata: {
-        main_module: moduleFileName,
-        bindings,
-      },
-      files: {
-        [moduleFileName]: new File([code], moduleFileName, {
-          type: "application/javascript+module",
-        }),
-      },
-    },
-  );
-
-  return { namespace: namespaceName, script: scriptName };
-}
-
-const HTML_UI = ({ isReadOnly }: { isReadOnly: boolean }) => `<!DOCTYPE html>
+const HTML_UI = () => `<!DOCTYPE html>
 <html>
 <head>
-  <title>Worker Publisher</title>
+  <title>Browser Rendering Demo</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1F680;</text></svg>">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -97,19 +37,18 @@ const HTML_UI = ({ isReadOnly }: { isReadOnly: boolean }) => `<!DOCTYPE html>
     .result.error { background: #fef2f2; border-color: #dc2626; box-shadow: 8px 8px 0px #ef4444; }
     .result a { color: #fb923c; font-weight: 900; text-decoration: none; border-bottom: 3px solid #fb923c; }
     .result a:hover { background: #fb923c; color: #1a1a1a; }
+    .note { background: #fef2f2; border: 2px solid #dc2626; padding: 1rem; margin-top: 1rem; border-radius: 4px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Worker Publisher</h1>
+    <h1>Browser Rendering Demo</h1>
+    <p>This Worker provides a standalone /render endpoint for Selenium-like browser rendering. Dynamic deployment is disabled (requires paid Workers for Platforms).</p>
+    <div class="note">Test example: /render?url=https://modelcontextprotocol.io/examples</div>
     <form id="deployForm">
       <div class="form-group">
-        <label for="scriptName">Script Name</label>
-        <input type="text" id="scriptName" placeholder="my-worker" required>
-      </div>
-      <div class="form-group">
-        <label for="code">Worker Code</label>
-        <textarea id="code">export default {
+        <label for="code">Browser Rendering Code (Copy & Deploy Manually)</label>
+        <textarea id="code" readonly>export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const targetUrl = url.searchParams.get('url');
@@ -148,41 +87,15 @@ const HTML_UI = ({ isReadOnly }: { isReadOnly: boolean }) => `<!DOCTYPE html>
   }
 };</textarea>
       </div>
-      <button type="submit"${isReadOnly ? " disabled" : ""}>Deploy Worker</button>
+      <button type="submit" disabled>Deploy (Disabled - WFP Required)</button>
     </form>
-    ${isReadOnly ? '<div class="result error">Deployment is disabled in read-only mode</div>' : ""}
+    <div class="result error">Use /render for testing or copy the code to a new Worker.</div>
     <div id="result"></div>
   </div>
   <script>
-    const isReadOnly = ${isReadOnly};
     document.getElementById('deployForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const scriptName = document.getElementById('scriptName').value;
-      const code = document.getElementById('code').value;
-      const resultDiv = document.getElementById('result');
-
-      resultDiv.innerHTML = '<div style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em;">Deploying...</div>';
-
-      try {
-        const response = await fetch('/deploy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scriptName, code })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-          resultDiv.innerHTML = \`<div class="result success">Successfully deployed worker "\${result.script}"! Redirecting...</div>\`;
-          setTimeout(() => {
-            window.location.href = '/' + result.script;
-          }, 2000);
-        } else {
-          resultDiv.innerHTML = \`<div class="result error">Error: \${result.error}</div>\`;
-        }
-      } catch (error) {
-        resultDiv.innerHTML = \`<div class="result error">Error: \${error.message}</div>\`;
-      }
+      document.getElementById('result').innerHTML = '<div class="result error">Feature requires Workers for Platforms. Test /render instead.</div>';
     });
   </script>
 </body>
@@ -192,21 +105,16 @@ export default {
   async fetch(
     request: Request,
     env: {
-      CLOUDFLARE_API_TOKEN: string;
-      CLOUDFLARE_ACCOUNT_ID: string;
-      DISPATCHER: any;
-      READONLY: string | boolean;
       BROWSER: any;
       AUTH_TOKEN?: string;
     },
   ) {
     const url = new URL(request.url);
     const pathSegments = url.pathname.split("/").filter(Boolean);
-    const isReadOnly = env.READONLY === "true" || env.READONLY === true;
 
     // Handle UI route
     if (pathSegments.length === 0) {
-      return new Response(HTML_UI({ isReadOnly }), {
+      return new Response(HTML_UI(), {
         headers: { "Content-Type": "text/html" },
       });
     }
@@ -227,14 +135,14 @@ export default {
       if (request.method === "POST") {
         try {
           const body = await request.json();
-          const { url, waitUntil = "networkidle0", timeout = 30000, script } = body;
-          if (!url) {
+          const { url: targetUrl, waitUntil = "networkidle0", timeout = 30000, script } = body;
+          if (!targetUrl) {
             return new Response(JSON.stringify({ error: "Missing url in JSON body" }), {
               status: 400,
               headers: { "Content-Type": "application/json" },
             });
           }
-          return await renderPage(url, env, { waitUntil, timeout, script });
+          return await renderPage(targetUrl, env, { waitUntil, timeout, script });
         } catch (error) {
           return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
             status: 400,
@@ -244,62 +152,8 @@ export default {
       }
     }
 
-    // Handle deploy endpoint
-    if (pathSegments[0] === "deploy" && request.method === "POST") {
-      if (isReadOnly) {
-        return new Response(
-          JSON.stringify({ error: "Read-only mode enabled" }),
-          {
-            status: 403,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      try {
-        const { scriptName, code } = await request.json();
-        if (!scriptName || !code) {
-          return new Response(
-            JSON.stringify({ error: "Missing scriptName or code" }),
-            {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
-            },
-          );
-        }
-
-        const result = await deploySnippetToNamespace(
-          {
-            namespaceName: "my-dispatch-namespace",
-            scriptName,
-            code,
-          },
-          env,
-        );
-
-        return new Response(JSON.stringify(result), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    // Handle worker dispatch
-    const workerName = pathSegments[0];
-    try {
-      const worker = env.DISPATCHER.get(workerName);
-      return await worker.fetch(request);
-    } catch (e) {
-      if (e.message.startsWith("Worker not found")) {
-        return new Response(`Worker '${workerName}' not found`, {
-          status: 404,
-        });
-      }
-      return new Response("Internal error", { status: 500 });
-    }
+    // Fallback for other paths
+    return new Response("Not Found", { status: 404 });
   },
 };
 
