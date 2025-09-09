@@ -44,7 +44,7 @@ const HTML_UI = () => `<!DOCTYPE html>
   <div class="container">
     <h1>Browser Rendering Demo</h1>
     <p>This Worker provides a standalone /render endpoint for Selenium-like browser rendering. Dynamic deployment is disabled (requires paid Workers for Platforms).</p>
-    <div class="note">Test example: /render?url=https://modelcontextprotocol.io/examples</div>
+    <div class="note">Test example: <a href="/render?url=https://modelcontextprotocol.io/examples">/render?url=https://modelcontextprotocol.io/examples</a></div>
     <form id="deployForm">
       <div class="form-group">
         <label for="code">Browser Rendering Code (Copy & Deploy Manually)</label>
